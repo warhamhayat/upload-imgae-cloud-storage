@@ -2,7 +2,8 @@ const express = require('express');
 const fileUpload = require('express-fileupload');
 const ObsClient = require('esdk-obs-nodejs');
 const path = require('path');
-const fs = require('fs')
+const fs = require('fs');
+const { STATUS_CODES } = require('http');
 require('dotenv').config();
 
 const app = express();
@@ -46,22 +47,16 @@ app.post('/upload', async (req, res) => {
       // ContentType: file.mimetype
       SourceFile : imagePath
     });
-
     //delete image in local directory 
     fs.unlinkSync(imagePath)
-
     // await fs.unlink(imagePath);
-    if (result.CommonMsg.Status < 300) {
-      console.log(`File ${fileName} berhasil diunggah ke Huawei OBS`);
-      const url = `https://${bucketName}.obs.${region}.myhuaweicloud.com/${fileName}`;
-      res.json({ message: 'File berhasil diunggah ke Huawei OBS', url: url });
-    } else {
-      console.error(result.CommonMsg);
-      res.status(500).json({ message: 'Terjadi kesalahan saat mengunggah file' });
-    }
+   
+    const url = `https://${bucketName}.obs.${region}.myhuaweicloud.com/${fileName}`;
+    res.json({ message: 'File berhasil diunggah ke Huawei OBS', url: url, status: res.statusCode });
+    console.log(`File ${fileName} berhasil diunggah ke Huawei OBS`);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Terjadi kesalahan saat mengunggah file' });
+    res.status(500).json({ message: 'Terjadi kesalahan saat mengunggah file', errror: err });
   }
 });
 const port = process.env.PORT || 3000;
