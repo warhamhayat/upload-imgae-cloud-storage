@@ -1,64 +1,74 @@
 const express = require('express');
-const fileUpload = require('express-fileupload');
 const ObsClient = require('esdk-obs-nodejs');
-const path = require('path');
-const fs = require('fs');
-const { STATUS_CODES } = require('http');
+const multer = require('multer');
 require('dotenv').config();
+const stream = require('stream');
 
 const app = express();
+app.use(express.json()); // Untuk menangani request body dengan format JSON
+app.use(express.urlencoded({ extended: true }));
 
-app.use(fileUpload());
+// Konfigurasi Multer untuk menangani upload file tanpa menyimpan di memori atau disk
+const upload = multer(); // Tidak menggunakan penyimpanan di memori atau disk
 
-// init to huwaei
+// Inisialisasi Huawei OBS Client
 const obsClient = new ObsClient({
   access_key_id: process.env.ACCESS_KEY_ID,
   secret_access_key: process.env.SECRET_ACCESS_KEY,
   server: process.env.OBS_ENDPOINT
 });
 
-const bucketName = process.env.BUCKET; // buckend name
+const bucketName = process.env.BUCKET; // Nama bucket
 const region = 'ap-southeast-4'; // Ganti dengan wilayah OBS Anda
 
-// Route untuk menangani upload file
-app.post('/upload', async (req, res) => {
+// Route untuk menangani upload file tunggal
+app.post('/upload', upload.single('image'), async (req, res) => {
+  console.log(req.file)
   try {
-    if (!req.files || Object.keys(req.files).length === 0) {
+    if (!req.file) {
       return res.status(400).json({ message: 'Tidak ada file yang diunggah.' });
     }
 
-    //get filee from client
-    const file = req.files.image;
-    //add time date to image name
-    const fileName = `${Date.now()}_${file.name}`;
+    const file = req.file;
+    console.log('File yang diunggah:', file);
 
-    const imagePath = path.join(
-      __dirname,
-      './upload/' + `${fileName}`
-    );
+    const fileName = `${Date.now()}_${file.originalname}`;
 
+    // Buat Readable stream dari buffer
+    const readStream = new stream.PassThrough();
+    readStream.end(file.buffer);
 
-    await file.mv(imagePath);
-    // Upload file ke Huawei OBS
-    const result = await obsClient.putObject({
+    // Upload file ke Huawei OBS menggunakan stream
+    obsClient.putObject({
       Bucket: bucketName,
-      Key: fileName,
-      // Body: file.data,
-      // ContentType: file.mimetype
-      SourceFile : imagePath
+      Key: `folder/${fileName}`, // Anda bisa mengganti 'folder/' sesuai kebutuhan
+      Body: readStream, // Menggunakan stream dari buffer
+      ContentLength: file.size, // Ukuran file
+      ContentType: file.mimetype // Tipe konten
+    }, (err, result) => {
+      if (err) {
+        console.error('Error saat mengunggah file:', err);
+        return res.status(500).json({ message: 'Terjadi kesalahan saat mengunggah file', error: err.message });
+      }
+
+      // Membuat URL file yang diunggah
+      const url = `https://${bucketName}.obs.${region}.myhuaweicloud.com/folder/${fileName}`;
+
+      res.json({
+        message: 'File berhasil diunggah ke Huawei OBS',
+        url: url,
+        status: res.statusCode
+      });
+
+      console.log(`File ${fileName} berhasil diunggah ke Huawei OBS`);
     });
-    //delete image in local directory 
-    fs.unlinkSync(imagePath)
-    // await fs.unlink(imagePath);
-   
-    const url = `https://${bucketName}.obs.${region}.myhuaweicloud.com/${fileName}`;
-    res.json({ message: 'File berhasil diunggah ke Huawei OBS', url: url, status: res.statusCode });
-    console.log(`File ${fileName} berhasil diunggah ke Huawei OBS`);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Terjadi kesalahan saat mengunggah file', errror: err });
+    console.error('Error saat mengunggah file:', err);
+    res.status(500).json({ message: 'Terjadi kesalahan saat mengunggah file', error: err.message });
   }
 });
+
+// Jalankan server
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Aplikasi berjalan di port ${port}`);
